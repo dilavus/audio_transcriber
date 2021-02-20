@@ -283,7 +283,7 @@ def transcribe(snippet, lang):
             r.adjust_for_ambient_noise(source)
             audio = r.record(source)        
             # text = r.recognize_google(audio)
-            if lang == None: lang = 'en'
+            # if lang == None: lang = 'en'
             text = r.recognize_google(audio, language=lang)
             text_string = text
     except:
@@ -514,6 +514,10 @@ def main():
     keep_wav = options.keep
     silence_detection = options.silence
     lang = options.lang
+
+    if lang == None:
+        print("[!]Default language is English!\n")
+        lang = 'en'
 
     if INPUT_FILE == None:
         print("[!]No Input File Supplied!\n")
