@@ -21,11 +21,13 @@ class InputFile(object):
         self.file = INPUT_FILE
         self.filename = self.getFilename(INPUT_FILE, script_path, supported_files)
         self.filetype = self.fileType(INPUT_FILE, supported_files)
+        if self.filetype == 'mov': self.filetype = 'mp4'
         self.filename_full = self.filename+"."+self.filetype
         self.sound = AudioSegment.from_file(self.filename + "." + self.filetype, format=self.filetype)
         self.sound_size = os.path.getsize(self.file)
-        
+
     def getFilename(self, INPUT_FILE, script_path, supported_files):
+        global FILENAME
         INPUT_FILE = str(INPUT_FILE)
         has_extension = False
         for file_type in supported_files:
@@ -74,6 +76,7 @@ class WavFile(object):
         
 def runTime(start_time):
     """Returns a formatted string of total duration time"""
+    global run_time_string
     total_duration = time.time() - start_time
     total_duration_seconds = int(total_duration//1)
     total_duration_milliseconds = int((total_duration-total_duration_seconds)*10000)
@@ -107,7 +110,9 @@ def extractAudio(FILE_TYPE, FILENAME, script_path):
     AUDIO_OUTPUT_FILE = FILENAME + "-EXTRACTED.wav"
     if os.path.isfile(script_path + '/' + AUDIO_OUTPUT_FILE) == True:
         os.remove(script_path + '/' + AUDIO_OUTPUT_FILE)
-    command = str("ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE +" -f wav -vn -ab 192000 " + script_path + "/" + AUDIO_OUTPUT_FILE)  
+
+    # command = str("ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE +" -f wav -vn -ab 192000 " + script_path + "/" + AUDIO_OUTPUT_FILE)
+    command = str("ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE +" -f wav -vn -ar 44100 -ac 2 -ab 192K " + script_path + "/" + AUDIO_OUTPUT_FILE)
     subprocess.call(command, shell=True)
     return AUDIO_OUTPUT_FILE
 
@@ -271,35 +276,37 @@ def organizeTemp(TEMP_FILE, script_path):
             temp.write(line)
     temp.close()
 
-def transcribe(snippet):
+def transcribe(snippet, lang):
     try:
         r = sr.Recognizer()
         with sr.AudioFile(snippet) as source:
             r.adjust_for_ambient_noise(source)
             audio = r.record(source)        
-            text = r.recognize_google(audio)
+            # text = r.recognize_google(audio)
+            if lang == None: lang = 'en'
+            text = r.recognize_google(audio, language=lang)
             text_string = text
     except:
         text_string = "!!!ERROR processing audio!!!"
     return text_string
 
-def transcribeAudio(snippet, line_count, TEMP_FILE, total_snippets, pbar, single_file=False):
+def transcribeAudio(snippet, line_count, TEMP_FILE, total_snippets, pbar, lang='uk', single_file=False):
     """Transcribes the audio input file/snippets and writes to a temp file"""
     if single_file == True:       
-        text = transcribe(snippet)
+        text = transcribe(snippet,lang)
         text_string = text
     elif single_file == False:
         dummy_diff = len(str(int(total_snippets)))-len(str(line_count))
         dummy_zeros = dummy_diff*str(0)
         line_count = str(dummy_zeros)+str(line_count)
-        text = transcribe(snippet)
+        text = transcribe(snippet, lang)
         text_string = str(line_count) + "- " + text
     with open(TEMP_FILE, "a") as f:
         f.write(text_string + "\n")
     f.close()
     pbar.update(1)
 
-def runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, single_file=False):
+def runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, lang, single_file=False):
     """
     Main function to run transcription operation
     """
@@ -309,7 +316,7 @@ def runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, single_
             with tqdm(total=pbar_total, leave=True, desc=" [+]Transcribing audio file") as pbar:
                 working_list.append(split_wav[0])
                 for snippet in working_list:
-                    transcribeAudio(snippet, None, TEMP_FILE, total_snippets, pbar, single_file=True)
+                    transcribeAudio(snippet, None, TEMP_FILE, total_snippets, pbar, lang, single_file=True)
     elif single_file == False:
         line_count = 0
         snippets_to_complete = total_snippets
@@ -325,26 +332,26 @@ def runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, single_
                 with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as executor:
                     for snippet in working_list:
                         line_count += 1
-                        executor.submit(transcribeAudio, snippet, line_count, TEMP_FILE, total_snippets, pbar,)
+                        executor.submit(transcribeAudio, snippet, line_count, TEMP_FILE, total_snippets, pbar, lang)
                 working_list.clear()
                 snippets_to_complete -= thread_count
                 snippets_completed += thread_count
 
 def printTitle():
-    VERSION = 3.0
+    VERSION = 4.1
     print("-------------------------------")
     print("    Audio Transcriber - v" + str(VERSION))
     print("-------------------------------")
 
-def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection):
+def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang):
     """
     All the main functions & operations are run from this function.
     """
     start_time = time.time()
     script_path = os.path.abspath(os.path.dirname(sys.argv[0]))
-    supported_files = ['mp3', 'wav', 'm4a', 'mp4', 'mkv', 'mpg', 'avi', 'mpeg']
+    supported_files = ['mp3', 'wav', 'm4a', 'mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
     audio_formats = ['mp3', 'm4a']
-    video_formats = ['mp4', 'mkv', 'mpg', 'avi', 'mpeg']
+    video_formats = ['mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
     recommended_section_length = 30
     if thread_count == None:
         thread_count = 10
@@ -384,10 +391,13 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
         while completed_conversion == False:
             test = soundCheck(input_file.sound_size, wav_file.sound_size)
             if test == True:
+                print("  [!]" + operation + " Completed")
                 completed_conversion = True
             else:
                 time.sleep(5)
-        print("  [!]" + operation + " Completed")
+                print("  [!]" + operation + " Completed but sound tracks have different size!!! ")
+                completed_conversion = True
+
     
     cleanUp(script_path, None)
     if not os.path.exists(TEMP_DIR):
@@ -437,9 +447,9 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
     Transcription Operations
     """
     if total_snippets == 1:
-        runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, single_file=True)
+        runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, lang, single_file=True)
     else:
-        runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets)
+        runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, lang)
         
     checkSuccess(total_snippets, TEMP_FILE)
     organizeTemp(TEMP_FILE, script_path)    
@@ -461,7 +471,8 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
     run_time = runTime(start_time)
     print('[!]Entire job took: ' + run_time)
     print("-------------------------------")
-    
+
+
 def main():
     """This just processes user input & options and passes it to runOperations()"""
     printTitle()
@@ -471,6 +482,7 @@ def main():
                                    '\n -f --file <target file> (REQUIRED)' +\
                                    '\n -t --threads <threads to use> (10 Default)' +\
                                    '\n -k --keep <keep converted/extracted wav file>' +\
+                                   '\n -k --lang <languages to be converted (uk, ru, e.t...)' +\
                                    '\n Splitting Options:' +\
                                    '\n -s --silence <silence splitting>' )
 
@@ -489,6 +501,9 @@ def main():
     parser.add_option('-s', '--silence',
                       action='store_true', dest='silence', default=False,\
                       help='Will use silence detection & splitting')
+    parser.add_option('-l', '--lang',
+                      action='store', dest='lang', type="string", \
+                      help='Specify language for translate')
     
     (options, args) = parser.parse_args()
 
@@ -498,7 +513,8 @@ def main():
     thread_count = options.threads
     keep_wav = options.keep
     silence_detection = options.silence
-    
+    lang = options.lang
+
     if INPUT_FILE == None:
         print("[!]No Input File Supplied!\n")
         print(parser.usage)
@@ -515,7 +531,7 @@ def main():
                 print("[!]ERROR: Cannot find specified file!")
                 break
                 exit
-    runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection)
+    runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang)
     
 if __name__ == '__main__':
     main()
