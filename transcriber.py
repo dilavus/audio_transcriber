@@ -482,7 +482,7 @@ def main():
                                    '\n -f --file <target file> (REQUIRED)' +\
                                    '\n -t --threads <threads to use> (10 Default)' +\
                                    '\n -k --keep <keep converted/extracted wav file>' +\
-                                   '\n -k --lang <languages to be converted (uk, ru, e.t...)' +\
+                                   '\n -l --lang <languages to be converted (uk, ru, e.t...)' +\
                                    '\n Splitting Options:' +\
                                    '\n -s --silence <silence splitting>' )
 
