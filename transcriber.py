@@ -143,6 +143,7 @@ def soundCheck(input_file_size, wav_file_size):
 
 
 def detectSilence(sound, ESTIMATED_SECTIONS, min_silence_len):
+    global silence_found
     silences = detect_silence(sound, min_silence_len, silence_thresh=-16, seek_step=1)
     if len(silences) < ESTIMATED_SECTIONS:
         silence_found = False
@@ -313,6 +314,7 @@ def transcribe(snippet, lang):
 
 def transcribeAudio(snippet, line_count, TEMP_FILE, total_snippets, pbar, lang='uk', single_file=False):
     """Transcribes the audio input file/snippets and writes to a temp file"""
+    global text_string
     if single_file == True:
         text = transcribe(snippet, lang)
         text_string = text
