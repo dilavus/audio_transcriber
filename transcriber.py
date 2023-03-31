@@ -369,7 +369,7 @@ def printTitle():
     print("-------------------------------")
 
 
-def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang):
+def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang, recommended_section_length ):
     """
     All the main functions & operations are run from this function.
     """
@@ -378,7 +378,7 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
     supported_files = ['mp3', 'wav', 'm4a', 'mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
     audio_formats = ['mp3', 'm4a']
     video_formats = ['mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
-    recommended_section_length = 30
+    # recommended_section_length = 20 ###########################################
     if thread_count == None:
         thread_count = 10
     input_file = InputFile(INPUT_FILE, script_path, supported_files)
@@ -512,7 +512,8 @@ def main():
                                    '\n -k --keep <keep converted/extracted wav file>' + \
                                    '\n -l --lang <languages to be converted (uk, ru, e.t...)' + \
                                    '\n Splitting Options:' + \
-                                   '\n -s --silence <silence splitting>')
+                                   '\n -s --silence <silence splitting>' + \
+                                   '\n -i --interval ')
 
     parser.add_option('-f', '--file',
                       action='store', dest='filename', type='string', \
@@ -532,6 +533,9 @@ def main():
     parser.add_option('-l', '--lang',
                       action='store', dest='lang', type="string", \
                       help='Specify language for translate')
+    parser.add_option('-i', '--interval',
+                      action='store', dest='section_interval', type="string", \
+                      help='Interval in sec of the portion sound file to read')
 
     (options, args) = parser.parse_args()
 
@@ -542,6 +546,8 @@ def main():
     keep_wav = options.keep
     silence_detection = options.silence
     lang = options.lang
+    section_length = int(options.section_interval)
+
 
     if lang == None:
         print("[!]Default language is English!\n")
@@ -563,7 +569,7 @@ def main():
                 print("[!]ERROR: Cannot find specified file!")
                 break
                 exit
-    runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang)
+    runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang, section_length)
 
 
 if __name__ == '__main__':
