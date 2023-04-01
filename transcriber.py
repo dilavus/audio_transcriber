@@ -7,6 +7,8 @@ import time
 import shutil
 import optparse
 import datetime
+from typing import Any
+
 import filetype
 import subprocess
 import concurrent.futures
@@ -14,21 +16,24 @@ from tqdm import tqdm
 import speech_recognition as sr
 from pydub import AudioSegment
 from pydub.silence import detect_silence
+import openai
 
 
 class InputFile(object):
 
     def __init__(self, INPUT_FILE, script_path, supported_files):
+        self.FILE_TYPE = None
         self.file = INPUT_FILE
         self.filename = self.getFilename(INPUT_FILE, script_path, supported_files)
         self.filetype = self.fileType(INPUT_FILE, supported_files)
-        if self.filetype == 'mov': self.filetype = 'mp4'
+        if self.filetype == 'mov':
+            self.filetype = 'mp4'
         self.filename_full = self.filename + "." + self.filetype
         self.sound = AudioSegment.from_file(self.filename + "." + self.filetype, format=self.filetype)
         self.sound_size = os.path.getsize(self.file)
 
     def getFilename(self, INPUT_FILE, script_path, supported_files):
-        global FILENAME
+        FILENAME = ''
         INPUT_FILE = str(INPUT_FILE)
         has_extension = False
         for file_type in supported_files:
@@ -37,7 +42,7 @@ class InputFile(object):
                 FILENAME = INPUT_FILE.replace(extension, "")
                 has_extension = True
                 break
-        if has_extension == False:
+        if not has_extension:
             FILENAME = INPUT_FILE
         FILENAME = FILENAME.replace(script_path + "\\", "")
         self.filename = FILENAME
@@ -65,7 +70,7 @@ class InputFile(object):
 class WavFile(object):
     def __init__(self, FILENAME, WAV_FILE, script_path, recommended_section_length, operation_extension):
         self.filetype = 'wav'
-        if operation_extension == None:
+        if operation_extension is None:
             self.filename = FILENAME
         else:
             self.filename = FILENAME + operation_extension
@@ -79,7 +84,7 @@ class WavFile(object):
 
 def runTime(start_time):
     """Returns a formatted string of total duration time"""
-    global run_time_string
+    run_time_string = ""
     total_duration = time.time() - start_time
     total_duration_seconds = int(total_duration // 1)
     total_duration_milliseconds = int((total_duration - total_duration_seconds) * 10000)
@@ -103,27 +108,28 @@ def runTime(start_time):
 
 def cleanUp(script_path, FILENAME, DELETE_CONVERT=False):
     shutil.rmtree(script_path + '/temp', ignore_errors=True)
-    if FILENAME != None:
-        if os.path.isfile(script_path + '/' + FILENAME + "-EXTRACTED.wav") == True and DELETE_CONVERT == True:
+    if FILENAME != 'None':
+        if os.path.isfile(script_path + '/' + FILENAME + "-EXTRACTED.wav") and DELETE_CONVERT:
             os.remove(script_path + '/' + FILENAME + "-EXTRACTED.wav")
-        elif os.path.isfile(script_path + '/' + FILENAME + "-CONVERTED.wav") == True and DELETE_CONVERT == True:
+        elif os.path.isfile(script_path + '/' + FILENAME + "-CONVERTED.wav") and DELETE_CONVERT:
             os.remove(script_path + '/' + FILENAME + "-CONVERTED.wav")
-
 
 def extractAudio(FILE_TYPE, FILENAME, script_path):
     """
     Extracts audio from a video file
     """
     AUDIO_OUTPUT_FILE = FILENAME + "-EXTRACTED.wav"
-    if os.path.isfile(script_path + '/' + AUDIO_OUTPUT_FILE) == True:
+    if os.path.isfile(script_path + '/' + AUDIO_OUTPUT_FILE):
         os.remove(script_path + '/' + AUDIO_OUTPUT_FILE)
 
-    # command = str("ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE +" -f wav -vn -ab 192000 " + script_path + "/" + AUDIO_OUTPUT_FILE)
-    command = str(
-        "ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE + " -f wav -vn -ar 44100 -ac 2 -ab 192K " + script_path + "/" + AUDIO_OUTPUT_FILE)
+    # command = str(
+    #     "ffmpeg -i " + script_path + "/" + FILENAME + "." + FILE_TYPE + " -f wav -vn -ar 44100 -ac 2 -ab 192K " + script_path + "/" + AUDIO_OUTPUT_FILE)
+    additional_command = '-af "afftdn=nf=-25,highpass=200,lowpass=3000,volume=4"'
+    # additional_command = ''
+    # additional_command = '-af "highpass=200,lowpass=3000"'
+    command = str(f'ffmpeg -i {script_path}/{FILENAME}.{FILE_TYPE} {additional_command} -f wav -vn -ar 44100 -ac 2 -ab 192K {script_path}/{AUDIO_OUTPUT_FILE}')
     subprocess.call(command, shell=True)
     return AUDIO_OUTPUT_FILE
-
 
 def convertWAV(INPUT_FILE, FILE_TYPE, FILENAME):
     """
@@ -143,15 +149,12 @@ def soundCheck(input_file_size, wav_file_size):
 
 
 def detectSilence(sound, ESTIMATED_SECTIONS, min_silence_len):
-    global silence_found
     silences = detect_silence(sound, min_silence_len, silence_thresh=-16, seek_step=1)
     if len(silences) < ESTIMATED_SECTIONS:
-        silence_found = False
         silences.clear()
+        return False, silences
     elif len(silences) >= ESTIMATED_SECTIONS:
-        silence_found = True
-    return silence_found, silences
-
+        return True, silences
 
 def silenceRanges(silence_ranges, silences_found):
     range_list = []
@@ -277,7 +280,7 @@ def checkSuccess(total_snippets, TEMP_FILE):
             for line in f:
                 line_count += 1
         if int(line_count) == int(total_snippets):
-            f.close
+            f.close()
             break
         f.close()
     return
@@ -363,18 +366,18 @@ def runTranscription(split_wav, thread_count, TEMP_FILE, total_snippets, lang, s
 
 
 def printTitle():
-    VERSION = 4.1
-    print("-------------------------------")
-    print("    Audio Transcriber - v" + str(VERSION))
-    print("-------------------------------")
+    version = '4.2'
+    splash = '----------------------------------\n'
+    print(f'{splash}    Audio Transcriber - v {version}\n{splash}')
 
 
-def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang, recommended_section_length ):
+def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang, recommended_section_length):
     """
     All the main functions & operations are run from this function.
     """
+    global new_sound, operation_extension, operation, section_starts, section_starts
     start_time = time.time()
-    script_path = os.path.abspath(os.path.dirname(sys.argv[0]))
+    script_path: str | bytes | Any = os.path.abspath(os.path.dirname(sys.argv[0]))
     supported_files = ['mp3', 'wav', 'm4a', 'mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
     audio_formats = ['mp3', 'm4a']
     video_formats = ['mp4', 'mkv', 'mpg', 'avi', 'mpeg', 'mov']
@@ -392,7 +395,7 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
     """
     if input_file.filetype == 'Unsupported':
         print("[!]ERROR: Unsupported File Type!!!")
-        exit
+        exit()
     elif input_file.filetype in video_formats:
         print(" [+]Extracting Audio from Video...")
         new_sound = extractAudio(input_file.filetype, input_file.filename, script_path)
@@ -417,14 +420,14 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
         while completed_conversion == False:
             test = soundCheck(input_file.sound_size, wav_file.sound_size)
             if test == True:
-                print("  [!]" + operation + " Completed")
+                print(" [!]" + operation + " Completed")
                 completed_conversion = True
             else:
                 time.sleep(5)
                 print("  [!]" + operation + " Completed but sound tracks have different size!!! ")
                 completed_conversion = True
 
-    cleanUp(script_path, None)
+    cleanUp(script_path, 'None')
     if not os.path.exists(TEMP_DIR):
         os.mkdir(TEMP_DIR)
 
@@ -489,7 +492,7 @@ def runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detec
     Clean Up Operations
     """
     if keep_wav == True:
-        cleanUp(script_path, None)
+        cleanUp(script_path, 'None')
     elif keep_wav == False:
         cleanUp(script_path, input_file.filename, DELETE_CONVERT=True)
 
@@ -505,7 +508,7 @@ def main():
     """This just processes user input & options and passes it to runOperations()"""
     printTitle()
 
-    parser = optparse.OptionParser('Options: ' + \
+    parser = optparse.OptionParser('Options: ' +
                                    '\n -h --help <show this help message and exit>' + \
                                    '\n -f --file <target file> (REQUIRED)' + \
                                    '\n -t --threads <threads to use> (10 Default)' + \
@@ -516,26 +519,20 @@ def main():
                                    '\n -i --interval ')
 
     parser.add_option('-f', '--file',
-                      action='store', dest='filename', type='string', \
-                      help='specify target file', metavar="FILE")
+                      action='store', dest='filename', type='string', help='specify target file', metavar="FILE")
 
     parser.add_option('-t', '--threads',
-                      action='store', dest='threads', type='int', \
-                      help='specify amount of threads to use')
+                      action='store', dest='threads', type='int', help='specify amount of threads to use')
 
     parser.add_option('-k', '--keep',
-                      action='store_true', dest='keep', default=False, \
-                      help='Keep wav file, if converting')
+                      action='store_true', dest='keep', default=False, help='Keep wav file, if converting')
 
     parser.add_option('-s', '--silence',
-                      action='store_true', dest='silence', default=False, \
-                      help='Will use silence detection & splitting')
-    parser.add_option('-l', '--lang',
-                      action='store', dest='lang', type="string", \
+                      action='store_true', dest='silence', default=False, help='Will use silence detection & splitting')
+    parser.add_option('-l', '--lang', action='store', dest='lang', type="string",
                       help='Specify language for translate')
-    parser.add_option('-i', '--interval',
-                      action='store', dest='section_interval', type="string", \
-                      help='Interval in sec of the portion sound file to read')
+    parser.add_option('-i', '--interval', action='store', dest='section_interval',
+                      type="string", help='Interval in sec of the portion sound file to read')
 
     (options, args) = parser.parse_args()
 
@@ -548,7 +545,6 @@ def main():
     lang = options.lang
     section_length = int(options.section_interval)
 
-
     if lang == None:
         print("[!]Default language is English!\n")
         lang = 'en'
@@ -556,7 +552,7 @@ def main():
     if INPUT_FILE == None:
         print("[!]No Input File Supplied!\n")
         print(parser.usage)
-        exit
+        exit()
     else:
         while True:
             if os.path.isfile("/" + str(INPUT_FILE)) == True:
@@ -567,10 +563,12 @@ def main():
                 break
             else:
                 print("[!]ERROR: Cannot find specified file!")
-                break
-                exit
+                exit()
     runOperations(INPUT_FILE, script_path, thread_count, keep_wav, silence_detection, lang, section_length)
 
 
 if __name__ == '__main__':
+    # openai.organization = "org-cUglEaGuH6dQ1kt5uQ9Vtghi"
+    # openai.api_key = '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'
+    # openai.Model.list()
     main()
